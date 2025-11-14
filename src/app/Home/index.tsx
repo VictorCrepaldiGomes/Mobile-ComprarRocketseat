@@ -12,21 +12,16 @@ import { Input } from "@/components/Inputs";
 import { Filter } from "@/components/Filter";
 import { FilterStatus } from "@/types/FilterStatus";
 import { Item } from "@/components/Item";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { itemsStorage, ItemStorage } from "@/storage/index";
 
-const FILTER_STATUS: FilterStatus[] = [FilterStatus.DONE, FilterStatus.PENDING];
+const FILTER_STATUS: FilterStatus[] = [FilterStatus.PENDING, FilterStatus.DONE];
 
 export default function Home() {
   const [filterStatus, setFilterStatus] = useState<FilterStatus>(
     FilterStatus.DONE
   );
-  const [items, setItems] = useState<
-    {
-      id: string;
-      description: string;
-      status: FilterStatus;
-    }[]
-  >([]);
+  const [items, setItems] = useState<ItemStorage[]>([]);
 
   function UpdateStatus(status: FilterStatus) {
     setFilterStatus(status);
@@ -34,23 +29,43 @@ export default function Home() {
 
   const [description, setDescription] = useState("");
 
-  function handleAddItem() {
+  async function handleAddItem() {
     if (!description.trim()) {
-      return Alert.alert("Erro", "A descrição do item não pode ser vazia.");
+      Alert.alert(
+        "Descrição inválida",
+        "Por favor, insira uma descrição válida."
+      );
+      return;
     }
+
     const newItem = {
-      id: new Date().getTime().toString(),
-      description: description,
+      id: String(new Date().getTime()),
       status: FilterStatus.PENDING,
+      description: description.trim(),
     };
-    console.log("Item adicionado:", newItem);
-    setItems((prevItems) => {
-      const next = [...prevItems, newItem];
-      console.log("Lista atualizada de itens:", next);
-      return next;
-    });
+
+    await itemsStorage.add(newItem);
+
+    Alert.alert(
+      "Item adicionado",
+      `"${newItem.description}" foi adicionado à lista.`
+    );
     setDescription("");
+    setFilterStatus(FilterStatus.PENDING);
   }
+
+  async function ItemsByStatus() {
+    try {
+      const response = await itemsStorage.getByStatus(filterStatus);
+      setItems(response);
+    } catch (error) {
+      console.error("Error fetching items:", error);
+    }
+  }
+
+  useEffect(() => {
+    ItemsByStatus();
+  }, [filterStatus]);
 
   return (
     <View style={styles.container}>
@@ -84,8 +99,29 @@ export default function Home() {
 
           <TouchableOpacity
             style={styles.clearButton}
-            onPress={() => {
-              setItems([]);
+            onPress={async () => {
+              if (items.length === 0) {
+                Alert.alert("A lista já está vazia.");
+                return;
+              }
+              Alert.alert(
+                "Limpar lista",
+                "Tem certeza que deseja limpar todos os itens?",
+                [
+                  {
+                    text: "Cancelar",
+                    style: "cancel",
+                  },
+                  {
+                    text: "Limpar",
+                    onPress: async () => {
+                      await itemsStorage.clearAllItems();
+                      setItems([]);
+                    },
+                    style: "destructive",
+                  },
+                ]
+              );
             }}
           >
             <Text style={styles.clearText}>Limpar</Text>
@@ -99,24 +135,38 @@ export default function Home() {
             <Item
               data={item}
               onRemove={() => {
-                setItems((prev) => prev.filter((i) => i.id !== item.id));
-                console.log(`${item.description} removido`);
-              }}
-              onStatusChange={() => {
-                setItems((prev) =>
-                  prev.map((i) =>
-                    i.id === item.id
-                      ? {
-                          ...i,
-                          status:
-                            i.status === FilterStatus.PENDING
-                              ? FilterStatus.DONE
-                              : FilterStatus.PENDING,
-                        }
-                      : i
-                  )
+                Alert.alert(
+                  "Remover item",
+                  `Tem certeza que deseja remover "${item.description}"?`,
+                  [
+                    {
+                      text: "Cancelar",
+                    },
+                    {
+                      text: "Remover",
+                      onPress: async () => {
+                        const updatedItems = await itemsStorage.remove(item.id);
+                        setItems(updatedItems);
+                        console.log(`Item ${item.description} removido`);
+                      },
+                      style: "destructive",
+                    },
+                  ]
                 );
-                console.log(`Status do ${item.description} alterado`);
+              }}
+              onStatusChange={async () => {
+                const newStatus =
+                  item.status === FilterStatus.PENDING
+                    ? FilterStatus.DONE
+                    : FilterStatus.PENDING;
+                const updatedItems = await itemsStorage.toggleStausItems(
+                  item.id,
+                  newStatus
+                );
+                setItems(updatedItems);
+                console.log(
+                  `Item ${item.description} status alterado para ${newStatus}`
+                );
               }}
             />
           )}
